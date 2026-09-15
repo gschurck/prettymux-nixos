@@ -16,3 +16,6 @@
  * If not showing, creates and displays the shortcuts overlay.
  */
 void shortcuts_overlay_toggle(GtkOverlay *overlay);
+
+/* True while a shortcut row is capturing a replacement key combination. */
+gboolean shortcuts_overlay_is_editing(GtkOverlay *overlay);

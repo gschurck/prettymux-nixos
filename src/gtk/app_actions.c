@@ -795,6 +795,12 @@ app_actions_on_key_pressed(GtkEventControllerKey *ctrl, guint keyval,
     (void)keycode;
     (void)user_data;
 
+    /* The window controller runs in capture phase, before the focused shortcut
+     * row. Let the row receive the full combination while it is being edited. */
+    if (ui.overlay &&
+        shortcuts_overlay_is_editing(GTK_OVERLAY(ui.overlay)))
+        return FALSE;
+
     GdkModifierType mods = state & (GDK_CONTROL_MASK | GDK_SHIFT_MASK |
                                     GDK_ALT_MASK | GDK_SUPER_MASK);
     guint lower = gdk_keyval_to_lower(keyval);

@@ -574,6 +574,18 @@ on_reset_clicked(GtkButton *btn, gpointer user_data)
 
 /* ── Public API ────────────────────────────────────────────────── */
 
+gboolean
+shortcuts_overlay_is_editing(GtkOverlay *overlay)
+{
+    GtkWidget *existing;
+
+    g_return_val_if_fail(GTK_IS_OVERLAY(overlay), FALSE);
+
+    existing = find_existing(overlay);
+    return existing &&
+           g_object_get_data(G_OBJECT(existing), "editing-row") != NULL;
+}
+
 void
 shortcuts_overlay_toggle(GtkOverlay *overlay)
 {
