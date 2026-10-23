@@ -99,6 +99,36 @@ meson setup builddir --prefix=/usr
 ninja -C builddir
 ```
 
+## NixOS
+
+`nix/package.nix` builds the pinned Ghostty fork (Zig deps pre-fetched from
+its `build.zig.zon.nix`) and PrettyMux, rewriting the `/usr/share` fallbacks
+to store paths at build time.
+
+```bash
+nix-build -E 'with import <nixpkgs> {}; callPackage ./nix/package.nix {}'
+./result/bin/prettymux
+```
+
+Install system-wide from `/etc/nixos/configuration.nix`:
+
+```nix
+environment.systemPackages = [
+  (pkgs.callPackage /path/to/prettymux/nix/package.nix { })
+];
+```
+
+Dev loop (the test suite needs a display, so it runs here, not in the build):
+
+```bash
+LG=$(nix-build --no-out-link -E 'with import <nixpkgs> {}; (callPackage ./nix/package.nix {}).libghostty')
+nix-shell -E 'with import <nixpkgs> {}; callPackage ./nix/package.nix {}' \
+  --run "meson setup builddir src/gtk -Dghostty_dir=$LG && ninja -C builddir && meson test -C builddir"
+```
+
+When bumping `GHOSTTY_REF`, update the rev and hash in `nix/package.nix` too
+(`nix flake prefetch github:patcito/ghostty/<rev>`).
+
 ## Run
 
 ```bash

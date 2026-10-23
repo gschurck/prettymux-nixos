@@ -1,3 +1,4 @@
+#define _GNU_SOURCE
 /*
  * ghostty_terminal.c - GObject widget wrapping ghostty's embedded C API
  *
