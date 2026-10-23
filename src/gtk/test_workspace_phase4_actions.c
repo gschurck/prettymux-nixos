@@ -893,6 +893,29 @@ test_close_current_for_layout_strip_single_column_fails(void)
     free_workspace_fixture(ws);
 }
 
+/* Closing a split's last tab goes through workspace_close_pane, which used to
+ * handle only classic GtkPaned splits and left a blank strip column behind. */
+static void
+test_close_pane_strip_removes_column(void)
+{
+    require_display_or_skip();
+
+    Workspace *ws = make_strip_workspace(2);
+    GtkNotebook *first = g_ptr_array_index(ws->pane_notebooks, 0);
+    GtkNotebook *second = g_ptr_array_index(ws->pane_notebooks, 1);
+
+    workspace_close_pane(ws, second);
+    g_assert_cmpuint(ws->pane_notebooks->len, ==, 1);
+    g_assert_cmpuint(ws->strip_state->columns->len, ==, 1);
+    g_assert_true(ws->active_pane == first);
+
+    /* The page-removed idle closes the same pane again; must be a no-op. */
+    workspace_close_pane(ws, second);
+    g_assert_cmpuint(ws->strip_state->columns->len, ==, 1);
+
+    free_workspace_fixture(ws);
+}
+
 static void
 test_strip_shortcuts_match_phase4_contract(void)
 {
@@ -2068,6 +2091,8 @@ main(int argc, char **argv)
                     test_close_current_for_layout_strip_stacked_pane_keeps_column);
     g_test_add_func("/workspace-phase4/close/strip-single-column-fails",
                     test_close_current_for_layout_strip_single_column_fails);
+    g_test_add_func("/workspace-phase4/close/strip-close-pane-removes-column",
+                    test_close_pane_strip_removes_column);
     g_test_add_func("/workspace-phase4/shortcuts/strip-contract",
                     test_strip_shortcuts_match_phase4_contract);
     g_test_add_func("/workspace-phase4/close/classic-collapses-tree",

@@ -5240,31 +5240,14 @@ workspace_split_current_for_layout(Workspace *ws, GtkOrientation orientation,
     return TRUE;
 }
 
-gboolean
-workspace_close_current_for_layout(Workspace *ws)
+static gboolean
+close_strip_pane(Workspace *ws, GtkNotebook *focused)
 {
-    GtkNotebook *focused;
-    GtkWidget *focused_widget;
+    GtkWidget *focused_widget = GTK_WIDGET(focused);
     int focused_pane_idx;
     int next_pane_idx;
     int focused_col = -1;
     int focused_col_pane_count = 0;
-
-    if (!ws || !ws->pane_notebooks || ws->pane_notebooks->len <= 1)
-        return FALSE;
-
-    focused = workspace_get_focused_pane(ws);
-    if (!focused)
-        return FALSE;
-    focused_widget = GTK_WIDGET(focused);
-
-    if (workspace_get_layout_mode(ws) == WORKSPACE_LAYOUT_CLASSIC) {
-        workspace_close_pane(ws, focused);
-        return TRUE;
-    }
-
-    if (workspace_get_layout_mode(ws) != WORKSPACE_LAYOUT_STRIP)
-        return FALSE;
 
     focused_pane_idx = workspace_get_pane_index(ws, focused);
     if (focused_pane_idx < 0)
@@ -5323,6 +5306,29 @@ workspace_close_current_for_layout(Workspace *ws)
     workspace_refresh_tab_labels(ws);
     workspace_sync_summary_from_first_terminal(ws);
     return TRUE;
+}
+
+gboolean
+workspace_close_current_for_layout(Workspace *ws)
+{
+    GtkNotebook *focused;
+
+    if (!ws || !ws->pane_notebooks || ws->pane_notebooks->len <= 1)
+        return FALSE;
+
+    focused = workspace_get_focused_pane(ws);
+    if (!focused)
+        return FALSE;
+
+    if (workspace_get_layout_mode(ws) == WORKSPACE_LAYOUT_CLASSIC) {
+        workspace_close_pane(ws, focused);
+        return TRUE;
+    }
+
+    if (workspace_get_layout_mode(ws) != WORKSPACE_LAYOUT_STRIP)
+        return FALSE;
+
+    return close_strip_pane(ws, focused);
 }
 
 static gboolean
@@ -5838,6 +5844,13 @@ workspace_close_pane(Workspace *ws, GtkNotebook *pane)
     if (!ws || !pane) return;
     if (!GTK_IS_NOTEBOOK(pane)) return;
     if (!ws->pane_notebooks || ws->pane_notebooks->len <= 1) return;
+
+    /* Strip panes live in column boxes, not GtkPaned; the code below would bail
+     * and leave the emptied pane on screen. */
+    if (workspace_get_layout_mode(ws) == WORKSPACE_LAYOUT_STRIP) {
+        close_strip_pane(ws, pane);
+        return;
+    }
 
     if (workspace_layout_is_zoomed(ws))
         workspace_layout_toggle_zoom_current(ws);
