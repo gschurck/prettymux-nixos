@@ -89,6 +89,7 @@ struct _GhosttyTerminal {
     char              *start_cwd;
     char              *terminal_id;
     char              *theme_override; /* per-tab ghostty theme name, or NULL */
+    char              *claude_session; /* live Claude Code session id, or NULL */
     pid_t              session_id;
     char              *tty_name;
     char              *tty_path;
@@ -665,6 +666,12 @@ on_render_realize(GtkWidget *widget, gpointer user_data)
     config.env_vars = env_vars;
     config.env_var_count = env_count;
 
+    /* Restored tab that had Claude Code open: type the resume into the shell. */
+    g_autofree char *resume_input = self->claude_session
+        ? g_strdup_printf("claude --resume %s\n", self->claude_session)
+        : NULL;
+    config.initial_input = resume_input;
+
     self->surface = ghostty_surface_new(g_ghostty_app, &config);
     g_free(zsh_dotdir);
     g_free(shell_hook_dir);
@@ -1217,6 +1224,7 @@ ghostty_terminal_finalize(GObject *object)
     g_free(self->tty_name);
     g_free(self->tty_path);
     g_free(self->theme_override);
+    g_free(self->claude_session);
     g_free(self->status_cwd_full);
     g_free(self->status_git_full);
     g_free(self->hover_url);
@@ -1664,6 +1672,29 @@ ghostty_terminal_get_theme_override(GhosttyTerminal *self)
 {
     g_return_val_if_fail(GHOSTTY_IS_TERMINAL(self), NULL);
     return self->theme_override;
+}
+
+void
+ghostty_terminal_set_claude_session(GhosttyTerminal *self, const char *session_id)
+{
+    g_return_if_fail(GHOSTTY_IS_TERMINAL(self));
+    g_free(self->claude_session);
+    self->claude_session = NULL;
+    if (!session_id || !session_id[0])
+        return;
+    /* It gets typed into a shell on restore, so accept only UUID characters. */
+    for (const char *c = session_id; *c; c++) {
+        if (!g_ascii_isxdigit(*c) && *c != '-')
+            return;
+    }
+    self->claude_session = g_strdup(session_id);
+}
+
+const char *
+ghostty_terminal_get_claude_session(GhosttyTerminal *self)
+{
+    g_return_val_if_fail(GHOSTTY_IS_TERMINAL(self), NULL);
+    return self->claude_session;
 }
 
 void

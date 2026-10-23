@@ -320,6 +320,27 @@ socket_server_route_command_to_instance(const char *instance_id,
     return FALSE;
 }
 
+static char *g_claude_session = NULL;
+static int g_claude_session_calls = 0;
+
+SurfaceLookup
+terminal_routing_find_for_id(const char *terminal_id)
+{
+    SurfaceLookup result = { NULL, NULL, -1, NULL, -1, -1 };
+    if (g_strcmp0(terminal_id, "term-123") == 0)
+        result.terminal = (GhosttyTerminal *)&g_claude_session;
+    return result;
+}
+
+void
+ghostty_terminal_set_claude_session(GhosttyTerminal *self, const char *session_id)
+{
+    (void)self;
+    g_claude_session_calls++;
+    g_free(g_claude_session);
+    g_claude_session = g_strdup(session_id);
+}
+
 void
 terminal_routing_register_scope(const char *terminal_id,
                                 pid_t session_id,
@@ -1118,6 +1139,44 @@ test_terminal_register_ok(void)
     json_object_unref(msg);
 }
 
+static void
+invoke_claude_hook(const char *terminal_id, const char *payload,
+                   const char *expected_status)
+{
+    JsonObject *msg = json_object_new();
+    JsonNode *root;
+
+    json_object_set_string_member(msg, "terminalId", terminal_id);
+    json_object_set_string_member(msg, "payload", payload);
+    root = invoke_socket_command("claude.hook", msg);
+    assert_status_and_message(json_node_get_object_or_fail(root),
+                              expected_status, NULL);
+    json_node_free(root);
+    json_object_unref(msg);
+}
+
+static void
+test_claude_hook_tracks_session(void)
+{
+    invoke_claude_hook("term-123",
+                       "{\"hook_event_name\":\"SessionStart\",\"session_id\":\"abc-123\"}",
+                       "ok");
+    g_assert_cmpstr(g_claude_session, ==, "abc-123");
+
+    invoke_claude_hook("term-123",
+                       "{\"hook_event_name\":\"SessionEnd\",\"session_id\":\"abc-123\"}",
+                       "ok");
+    g_assert_null(g_claude_session);
+
+    /* Unknown terminal or other events leave the session alone. */
+    g_claude_session_calls = 0;
+    invoke_claude_hook("other", "{\"hook_event_name\":\"SessionStart\",\"session_id\":\"x\"}",
+                       "error");
+    invoke_claude_hook("term-123", "{\"hook_event_name\":\"Stop\"}", "ok");
+    invoke_claude_hook("term-123", "not json", "ok");
+    g_assert_cmpint(g_claude_session_calls, ==, 0);
+}
+
 int
 main(int argc, char **argv)
 {
@@ -1145,6 +1204,8 @@ main(int argc, char **argv)
                     test_workspace_status_set_requires_entry_id);
     g_test_add_func("/socket-commands/terminal/register-ok",
                     test_terminal_register_ok);
+    g_test_add_func("/socket-commands/claude-hook/tracks-session",
+                    test_claude_hook_tracks_session);
 
     return g_test_run();
 }

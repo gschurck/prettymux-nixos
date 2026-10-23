@@ -268,6 +268,20 @@ ghostty_terminal_set_theme_override(GhosttyTerminal *self, const char *theme_nam
 }
 
 const char *
+ghostty_terminal_get_claude_session(GhosttyTerminal *self)
+{
+    (void)self;
+    return NULL;
+}
+
+void
+ghostty_terminal_set_claude_session(GhosttyTerminal *self, const char *session_id)
+{
+    (void)self;
+    (void)session_id;
+}
+
+const char *
 app_state_get_instance_id(void)
 {
     const char *instance_id = g_getenv("PRETTYMUX_INSTANCE_ID");

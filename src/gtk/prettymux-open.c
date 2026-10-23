@@ -92,6 +92,7 @@ usage(void)
         "       prettymux-open --quit                   Close prettymux cleanly\n"
         "       prettymux-open --switch-workspace <n>   Switch to workspace N\n"
         "       prettymux-open --register-terminal <id> --session-id <sid>\n"
+        "       prettymux-open --claude-hook            Claude Code hook: track this tab's session (JSON on stdin)\n"
         "       prettymux-open --list-instances         List running instances\n"
         "       prettymux-open [--instance <id>] <command>\n"
         "       prettymux-open [--socket <path>] <command>\n"
@@ -1206,6 +1207,33 @@ main(int argc, char *argv[])
         free(escaped_tty_name);
         free(escaped_tty_path);
         return send_command(msg);
+    }
+
+    if (strcmp(arg, "--claude-hook") == 0) {
+        const char *terminal_id = getenv("PRETTYMUX_TERMINAL_ID");
+        char input[65536];
+        size_t len = fread(input, 1, sizeof(input) - 1, stdin);
+        input[len] = '\0';
+
+        if (!terminal_id || !terminal_id[0])
+            return 0; /* not inside a prettymux tab */
+
+        char *escaped_id = json_escape(terminal_id);
+        char *escaped_payload = json_escape(input);
+        size_t msg_len = escaped_id && escaped_payload
+            ? strlen(escaped_id) + strlen(escaped_payload) + 96 : 0;
+        char *msg = msg_len ? malloc(msg_len) : NULL;
+        int rc = 1;
+        if (msg) {
+            snprintf(msg, msg_len,
+                     "{\"command\":\"claude.hook\",\"terminalId\":\"%s\",\"payload\":\"%s\"}",
+                     escaped_id, escaped_payload);
+            rc = send_command(msg);
+        }
+        free(msg);
+        free(escaped_id);
+        free(escaped_payload);
+        return rc;
     }
 
     /* Default: hand URLs to the system default handler. */

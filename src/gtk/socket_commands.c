@@ -1117,6 +1117,28 @@ socket_commands_on_socket_command(const char  *command,
         terminal_routing_register_scope(terminal_id, session_id, tty_name, tty_path);
         json_builder_set_member_name(response, "status");
         json_builder_add_string_value(response, "ok");
+    } else if (strcmp(command, "claude.hook") == 0) {
+        /* payload is the hook's stdin JSON, forwarded as a string. */
+        const char *terminal_id =
+            json_object_get_string_member_with_default(msg, "terminalId", "");
+        const char *payload =
+            json_object_get_string_member_with_default(msg, "payload", "");
+        SurfaceLookup loc = terminal_routing_find_for_id(terminal_id);
+        g_autoptr(JsonNode) node = json_from_string(payload, NULL);
+        JsonObject *hook = (node && JSON_NODE_HOLDS_OBJECT(node))
+            ? json_node_get_object(node) : NULL;
+        const char *event = hook
+            ? json_object_get_string_member_with_default(hook, "hook_event_name", "")
+            : "";
+
+        if (loc.terminal && strcmp(event, "SessionStart") == 0) {
+            ghostty_terminal_set_claude_session(loc.terminal,
+                json_object_get_string_member_with_default(hook, "session_id", ""));
+        } else if (loc.terminal && strcmp(event, "SessionEnd") == 0) {
+            ghostty_terminal_set_claude_session(loc.terminal, NULL);
+        }
+        json_builder_set_member_name(response, "status");
+        json_builder_add_string_value(response, loc.terminal ? "ok" : "error");
     } else if (strcmp(command, "dismiss.welcome") == 0) {
         if (g_main_window)
             gtk_window_present(g_main_window);

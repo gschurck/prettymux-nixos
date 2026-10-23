@@ -86,6 +86,11 @@ void ghostty_terminal_set_cwd(GhosttyTerminal *self, const char *cwd);
 void        ghostty_terminal_set_theme_override(GhosttyTerminal *self,
                                                 const char *theme_name);
 const char *ghostty_terminal_get_theme_override(GhosttyTerminal *self);
+/* Claude Code session running in this tab (set by its hooks), resumed on
+ * session restore. Non-UUID values are dropped; NULL or "" clears. */
+void        ghostty_terminal_set_claude_session(GhosttyTerminal *self,
+                                                const char *session_id);
+const char *ghostty_terminal_get_claude_session(GhosttyTerminal *self);
 void ghostty_terminal_set_hover_url(GhosttyTerminal *self, const char *url);
 void ghostty_terminal_set_scope(GhosttyTerminal *self,
                                 pid_t            session_id,

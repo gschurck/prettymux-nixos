@@ -1432,6 +1432,14 @@ session_save_for_instance(const char *instance_id,
                             json_builder_add_string_value(b,
                                 term_theme ? term_theme : "");
 
+                            const char *claude_session = NULL;
+                            if (GHOSTTY_IS_TERMINAL(terminal))
+                                claude_session = ghostty_terminal_get_claude_session(
+                                    GHOSTTY_TERMINAL(terminal));
+                            json_builder_set_member_name(b, "claudeSession");
+                            json_builder_add_string_value(b,
+                                claude_session ? claude_session : "");
+
                             json_builder_end_object(b);
                         }
                     }
@@ -1778,11 +1786,16 @@ session_restore_for_instance(const char *instance_id,
                                  * terminal doesn't keep a stale override. */
                                 GtkWidget *tab_term =
                                     session_page_linked_terminal(child);
-                                if (tab_term && GHOSTTY_IS_TERMINAL(tab_term))
+                                if (tab_term && GHOSTTY_IS_TERMINAL(tab_term)) {
                                     ghostty_terminal_set_theme_override(
                                         GHOSTTY_TERMINAL(tab_term),
                                         (tab_theme && tab_theme[0])
                                             ? tab_theme : NULL);
+                                    ghostty_terminal_set_claude_session(
+                                        GHOSTTY_TERMINAL(tab_term),
+                                        json_object_get_string_member_with_default(
+                                            tab_obj, "claudeSession", ""));
+                                }
                                 gboolean is_custom =
                                     json_object_get_boolean_member_with_default(
                                         tab_obj, "customName", FALSE);
