@@ -101,6 +101,13 @@ stdenv.mkDerivation {
     ln -s ${libghostty}/share/ghostty/shell-integration $d/shell-integration
     ln -s ${libghostty}/share/ghostty/themes $d/themes
     bash ${../packaging/verify-shell-integration.sh} $d
+
+    # One launcher entry, named after the app id. DBusActivatable needs the
+    # D-Bus service only the Flatpak ships, so launch through Exec instead.
+    rm $out/share/applications/prettymux.desktop
+    substituteInPlace $out/share/applications/dev.prettymux.app.desktop \
+      --replace-fail $'DBusActivatable=true\n' "" \
+      --replace-fail Icon=dev.prettymux.app Icon=prettymux
   '';
 
   meta = {
