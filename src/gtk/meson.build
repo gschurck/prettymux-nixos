@@ -145,6 +145,7 @@ elif is_windows
   )
   platform_link_args += [
     ghostty_windows_lib,
+    '-lEGL',
     '-lole32',
     '-loleaut32',
     '-luuid',

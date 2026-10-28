@@ -16,7 +16,7 @@ permissions:
 
 env:
   GHOSTTY_REPO: patcito/ghostty
-  GHOSTTY_REF: f868bc9e2ded584967db4360c3a38f3de48bc165
+  GHOSTTY_REF: bd604e89a70455c99ecc7ed38a6ffe16c20a8871
   ZIG_VERSION: '0.17.0'
 
 jobs:
