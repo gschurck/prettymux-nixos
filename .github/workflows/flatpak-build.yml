@@ -16,8 +16,8 @@ permissions:
 
 env:
   GHOSTTY_REPO: patcito/ghostty
-  GHOSTTY_REF: 318afb82281e79b03acb6a6ca88dc08e8cb87d2f
-  ZIG_VERSION: '0.15.2'
+  GHOSTTY_REF: c1b95626a1bcbbeeaa149fac851e28d35b81342d
+  ZIG_VERSION: '0.17.0'
 
 jobs:
   fetch-libghostty:
@@ -39,9 +39,6 @@ jobs:
         uses: mlugg/setup-zig@v2
         with:
           version: ${{ env.ZIG_VERSION }}
-
-      - name: Apply PrettyMux Ghostty compatibility patch
-        run: git -C ghostty apply "$GITHUB_WORKSPACE/packaging/ghostty-linux-stable.patch"
 
       - name: Resolve ghostty revision
         id: ghostty_rev

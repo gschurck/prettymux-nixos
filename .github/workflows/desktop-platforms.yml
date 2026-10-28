@@ -21,8 +21,8 @@ permissions:
 
 env:
   GHOSTTY_REPO: patcito/ghostty
-  GHOSTTY_BRANCH: linux-embedded-platform
-  ZIG_VERSION: '0.16.0'
+  GHOSTTY_REF: c1b95626a1bcbbeeaa149fac851e28d35b81342d
+  ZIG_VERSION: '0.17.0'
 
 jobs:
   build-windows:
@@ -36,7 +36,7 @@ jobs:
         uses: actions/checkout@v5
         with:
           repository: ${{ env.GHOSTTY_REPO }}
-          ref: ${{ env.GHOSTTY_BRANCH }}
+          ref: ${{ env.GHOSTTY_REF }}
           path: ghostty
 
       - name: Install Zig
@@ -212,7 +212,7 @@ jobs:
         uses: actions/checkout@v5
         with:
           repository: ${{ env.GHOSTTY_REPO }}
-          ref: ${{ env.GHOSTTY_BRANCH }}
+          ref: ${{ env.GHOSTTY_REF }}
           path: ghostty
 
       - name: Select Xcode 16

@@ -5,8 +5,9 @@
 - GTK4, libadwaita, json-glib
 - Meson + Ninja
 - C17 compiler
-- Ghostty fork from `patcito/ghostty` on branch `linux-embedded-platform`
-- Zig `0.16.0+` to build `libghostty` (upstream's current `minimum_zig_version`)
+- Ghostty 1.4.0 plus the GTK embedding bridge from `patcito/ghostty`, pinned
+  by the packaging workflows to commit `c1b95626a1bcbbeeaa149fac851e28d35b81342d`
+- Zig `0.17.0` to build `libghostty` (Ghostty 1.4.0's minimum version)
 
 ### Install deps on Ubuntu or Debian
 
@@ -43,7 +44,8 @@ sudo pacman -S \
 
 ## Build `libghostty.so`
 
-PrettyMux links against the embedded Ghostty fork. Build it with a generic Linux target:
+PrettyMux links against Ghostty's internal embedding library plus the GTK frame
+bridge maintained in the PrettyMux fork. Build it with a generic Linux target:
 
 ```bash
 cd /path/to/ghostty
@@ -62,10 +64,8 @@ That produces:
   picker resolves against)
 - `include/ghostty.h`
 
-GLAD lives in the Ghostty tree under `vendor/glad/` and is compiled **into
-libghostty**. PrettyMux deliberately does not compile it: it makes no GL calls
-of its own, and a second copy in the executable would preempt libghostty's via
-ELF symbol interposition.
+Ghostty 1.4 renders offscreen and hands PrettyMux completed CPU-backed frames
+for GTK presentation. PrettyMux does not create or share Ghostty's GL context.
 
 > **Watch out when updating Ghostty.** Both files carry the SONAME
 > `libghostty.so`, so a stale `zig-out/lib/libghostty.so` left over from an

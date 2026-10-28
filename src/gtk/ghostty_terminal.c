@@ -1,10 +1,9 @@
 /*
  * ghostty_terminal.c - GObject widget wrapping ghostty's embedded C API
  *
- * Composite widget: GtkWidget containing a GtkGLArea that hosts a ghostty
- * terminal surface.  Forwards GL render/resize, keyboard, mouse, scroll,
- * focus, and IME events to ghostty.  Runs a 16 ms tick timer for
- * ghostty_app_tick().
+ * Composite widget that presents CPU-backed frames from a ghostty terminal
+ * surface. Forwards resize, keyboard, mouse, scroll, focus, and IME events
+ * to ghostty.
  */
 
 #include "ghostty_terminal.h"
@@ -53,11 +52,14 @@ static guint signals[N_SIGNALS];
 struct _GhosttyTerminal {
     GtkWidget parent_instance;
 
-    GtkWidget         *vbox;       /* Vertical box: gl_area + status bar */
-    GtkGLArea         *gl_area;
+    GtkWidget         *vbox;       /* Vertical box: presentation + status bar */
+    GtkWidget         *gl_area;    /* GtkPicture; historical field name */
     ghostty_surface_t  surface;
     guint              tick_source_id;
     gboolean           exit_emitted;
+    int                render_width;
+    int                render_height;
+    int                render_scale;
 
     /* Last overlay-relative geometry mirrored from the dummy target, so the
      * per-tick overlay re-allocation only fires when the terminal actually
@@ -398,60 +400,115 @@ ghostty_terminal_measure(GtkWidget      *widget,
         *natural = child_nat;
 }
 
-/* ── GL callbacks ──────────────────────────────────────────────── */
+/* ── Frame presentation ───────────────────────────────────────── */
 
 static void
-on_gl_realize(GtkGLArea *area, gpointer user_data)
+ghostty_terminal_request_draw(GhosttyTerminal *self)
+{
+    if (self->surface)
+        ghostty_surface_refresh(self->surface);
+}
+
+static void
+ghostty_terminal_update_geometry(GhosttyTerminal *self)
+{
+    int width;
+    int height;
+    int scale;
+
+    if (!self->surface || !self->gl_area)
+        return;
+
+    width = gtk_widget_get_width(self->gl_area);
+    height = gtk_widget_get_height(self->gl_area);
+    scale = gtk_widget_get_scale_factor(self->gl_area);
+    if (width <= 0 || height <= 0 || scale <= 0)
+        return;
+    if (width == self->render_width && height == self->render_height &&
+        scale == self->render_scale)
+        return;
+
+    self->render_width = width;
+    self->render_height = height;
+    self->render_scale = scale;
+    ghostty_surface_set_content_scale(self->surface, scale, scale);
+    ghostty_surface_set_size(self->surface,
+                            (uint32_t)width * (uint32_t)scale,
+                            (uint32_t)height * (uint32_t)scale);
+}
+
+static void
+ghostty_terminal_present_latest_frame(GhosttyTerminal *self)
+{
+    ghostty_surface_frame_s frame = {0};
+    GBytes *bytes;
+    GdkTexture *texture;
+    guchar *pixels;
+    gsize image_len;
+
+    if (!self->surface || !self->gl_area ||
+        !ghostty_surface_take_frame(self->surface, &frame))
+        return;
+
+    if (!frame.data || !frame.token || frame.width == 0 || frame.height == 0 ||
+        frame.stride < frame.width * 4 ||
+        frame.height > G_MAXSIZE / frame.stride) {
+        ghostty_surface_frame_free(frame.token);
+        return;
+    }
+
+    image_len = (gsize)frame.height * frame.stride;
+    if (frame.len < image_len) {
+        ghostty_surface_frame_free(frame.token);
+        return;
+    }
+
+    /* OpenGL frames use a bottom-left origin; GDK textures use top-left. */
+    pixels = g_malloc(image_len);
+    for (uint32_t row = 0; row < frame.height; row++) {
+        memcpy(pixels + (gsize)row * frame.stride,
+               frame.data + (gsize)(frame.height - row - 1) * frame.stride,
+               frame.stride);
+    }
+    ghostty_surface_frame_free(frame.token);
+
+    bytes = g_bytes_new_take(pixels, image_len);
+    texture = gdk_memory_texture_new((int)frame.width,
+                                     (int)frame.height,
+                                     GDK_MEMORY_R8G8B8A8_PREMULTIPLIED,
+                                     bytes,
+                                     frame.stride);
+    g_bytes_unref(bytes);
+    gtk_picture_set_paintable(GTK_PICTURE(self->gl_area),
+                              GDK_PAINTABLE(texture));
+    g_object_unref(texture);
+}
+
+static void
+on_render_realize(GtkWidget *widget, gpointer user_data)
 {
     GhosttyTerminal *self = GHOSTTY_TERMINAL(user_data);
 
-    gtk_gl_area_make_current(area);
-    const GError *gl_error = gtk_gl_area_get_error(area);
-    if (gl_error != NULL) {
-        /* GTK could not create an OpenGL context for this GtkGLArea, so the
-         * terminal surface can't be created and the pane stays blank (GTK
-         * paints its own "no GL context" notice). This is almost always a
-         * GTK4/driver/environment problem rather than a prettymux bug — it
-         * also reproduces under LIBGL_ALWAYS_SOFTWARE=1. Log the real error
-         * (run with GDK_DEBUG=opengl for more) instead of failing silently. */
-        g_warning("prettymux: GtkGLArea failed to create an OpenGL context: %s "
-                  "(%s:%d). The terminal pane cannot render; this is usually a "
-                  "GTK4/GL driver issue. Try GDK_DEBUG=opengl for details.",
-                  gl_error->message,
-                  g_quark_to_string(gl_error->domain), gl_error->code);
-        return;
-    }
+    (void)widget;
     if (!g_ghostty_app) {
         return;
     }
 
-    /* If we already have a surface, the widget was reparented (e.g. DnD) and
-     * GTK gave us a BRAND NEW GL context. Don't create a new surface (that
-     * would kill the process). Load GLAD for the new context, then have the
-     * renderer rebuild its context-local objects (swapchain, shaders, FBOs).
-     *
-     * on_gl_unrealize tore those down against the old context, which is what
-     * makes display_realized valid here -- it asserts the swapchain is
-     * defunct. Skipping the rebuild would reuse objects belonging to the
-     * destroyed context: a blank terminal, GL errors, or a driver crash. */
     if (self->surface) {
-        ghostty_surface_init_opengl(self->surface);
-        ghostty_surface_display_realized(self->surface);
-        /* The surface's colors are context-independent, but re-resolve here
-         * so a tab dropped into a differently-themed pane repaints correctly. */
         app_terminal_apply_scoped_theme(self);
-        gtk_gl_area_queue_render(area);
+        ghostty_terminal_update_geometry(self);
+        ghostty_terminal_request_draw(self);
         return;
     }
 
     ghostty_surface_config_s config = ghostty_surface_config_new();
-    config.platform_tag = GHOSTTY_PLATFORM_LINUX;
-    config.platform.gtk.gtk_widget = (void *)self->gl_area;
+    config.platform_tag = GHOSTTY_PLATFORM_GTK;
+    config.platform.gtk.widget = (void *)self->gl_area;
     /* Ghostty hands this back as the first argument of the runtime clipboard
      * callbacks, which is how they resolve the surface they belong to. */
     config.userdata = self;
 
-    double scale = gtk_widget_get_scale_factor(GTK_WIDGET(area));
+    double scale = gtk_widget_get_scale_factor(self->gl_area);
     config.scale_factor = scale;
     if (g_ghostty_default_font_size > 0.0f)
         config.font_size = g_ghostty_default_font_size;
@@ -612,16 +669,9 @@ on_gl_realize(GtkGLArea *area, gpointer user_data)
     g_free(shell_hook_dir);
     g_free(xdg_data_dirs);
     if (self->surface) {
-        ghostty_surface_init_opengl(self->surface);
+        ghostty_terminal_update_geometry(self);
 
-        /* Push initial geometry so the surface isn't stuck at 0x0 */
-        ghostty_surface_set_content_scale(self->surface, scale, scale);
-        int w = gtk_widget_get_width(GTK_WIDGET(area));
-        int h = gtk_widget_get_height(GTK_WIDGET(area));
-        if (w > 0 && h > 0)
-            ghostty_surface_set_size(self->surface, (uint32_t)w, (uint32_t)h);
-
-        gboolean focused = gtk_widget_has_focus(GTK_WIDGET(self->gl_area));
+        gboolean focused = gtk_widget_has_focus(self->gl_area);
         ghostty_surface_set_focus(self->surface, focused);
 
         /* Apply this terminal's resolved (tab/pane/workspace) color theme
@@ -629,66 +679,8 @@ on_gl_realize(GtkGLArea *area, gpointer user_data)
          * restore, where the overrides were set before the GL realize. */
         app_terminal_apply_scoped_theme(self);
 
-        /* Queue first render */
-        gtk_gl_area_queue_render(area);
+        ghostty_terminal_request_draw(self);
     }
-}
-
-/*
- * The GL context is going away (widget reparented, e.g. a tab dragged to
- * another pane/window, or the widget being destroyed). GTK makes the OLD
- * context current before emitting this, which is exactly when ghostty must
- * release its context-local GPU objects. A later "realize" then rebuilds them
- * against the new context (see on_gl_realize).
- */
-static void
-on_gl_unrealize(GtkGLArea *area, gpointer user_data)
-{
-    GhosttyTerminal *self = GHOSTTY_TERMINAL(user_data);
-
-    if (!self->surface)
-        return;
-
-    /* If the context failed to come up we have nothing valid to tear down. */
-    if (gtk_gl_area_get_error(area) != NULL)
-        return;
-
-    gtk_gl_area_make_current(area);
-    if (gtk_gl_area_get_error(area) != NULL)
-        return;
-
-    ghostty_surface_display_unrealized(self->surface);
-}
-
-static gboolean
-on_gl_render(GtkGLArea *area, GdkGLContext *context, gpointer user_data)
-{
-    (void)context;
-    GhosttyTerminal *self = GHOSTTY_TERMINAL(user_data);
-
-    if (!self->surface)
-        return FALSE;
-
-    gtk_gl_area_make_current(area);
-    ghostty_surface_draw_frame(self->surface);
-    return TRUE;
-}
-
-static void
-on_gl_resize(GtkGLArea *area, int width, int height, gpointer user_data)
-{
-    GhosttyTerminal *self = GHOSTTY_TERMINAL(user_data);
-
-    if (!self->surface)
-        return;
-    /* Ignore 0x0 resize events (happens during pane close/reparent) */
-    if (width <= 0 || height <= 0)
-        return;
-
-    double scale = gtk_widget_get_scale_factor(GTK_WIDGET(area));
-    ghostty_surface_set_content_scale(self->surface, scale, scale);
-    /* GtkGLArea resize callback gives pixel dimensions already */
-    ghostty_surface_set_size(self->surface, (uint32_t)width, (uint32_t)height);
 }
 
 /* ── Tick timer ────────────────────────────────────────────────── */
@@ -703,10 +695,9 @@ tick_callback(gpointer user_data)
      *    the app mailbox. Every mailbox push wakes us (wakeup_cb), so it is
      *    driven on demand from main.c. Calling it here ran it once per
      *    terminal per frame.
-     *  - gtk_gl_area_queue_render(): ghostty asks for redraws via
-     *    GHOSTTY_ACTION_RENDER (-> ghostty_terminal_queue_render), and the
-     *    input handlers queue their own. Rendering every terminal at 62Hz
-     *    while idle was the bulk of prettymux's background CPU.
+     *  - frame presentation: ghostty asks for it via GHOSTTY_ACTION_RENDER
+     *    (-> ghostty_terminal_queue_render). Presenting every terminal at
+     *    62Hz while idle was the bulk of prettymux's background CPU.
      *
      * Known edge case: ghostty's renderer pushes .redraw_surface onto a
      * 64-slot app mailbox with a non-blocking try-push and ignores failure
@@ -721,8 +712,10 @@ tick_callback(gpointer user_data)
      * deferred action idle) and could emit the sentinel -1 while latching
      * exit_emitted, suppressing the correct code. */
 
+    ghostty_terminal_update_geometry(self);
+
     /* Mirror the dummy page widget's geometry. Keep a size_request so
-     * the GL area measures/realizes correctly. The actual *position*
+     * the presentation widget measures/realizes correctly. The actual *position*
      * is handled by the workspace overlay's get-child-position handler
      * (on_overlay_get_child_position in workspace.c) which can place
      * the terminal at negative coordinates so a strip column scrolled
@@ -874,7 +867,7 @@ on_key_pressed(GtkEventControllerKey *controller,
     }
 
     ghostty_terminal_send_key_internal(self, keyval, keycode, state, event);
-    gtk_gl_area_queue_render(self->gl_area);
+    ghostty_terminal_request_draw(self);
     return TRUE;
 }
 
@@ -926,7 +919,7 @@ on_im_commit(GtkIMContext *im, const char *text, gpointer user_data)
     ke.text = NULL;
     ghostty_surface_key(self->surface, ke);
 
-    gtk_gl_area_queue_render(self->gl_area);
+    ghostty_terminal_request_draw(self);
 }
 
 static void
@@ -989,7 +982,7 @@ on_click_pressed(GtkGestureClick *gesture,
      * Without claiming the sequence, the workspace sidebar can steal the
      * pointer when the drag gets close to the left edge. */
     gtk_gesture_set_state(GTK_GESTURE(gesture), GTK_EVENT_SEQUENCE_CLAIMED);
-    gtk_gl_area_queue_render(self->gl_area);
+    ghostty_terminal_request_draw(self);
 }
 
 static void
@@ -1044,7 +1037,7 @@ on_click_released(GtkGestureClick *gesture,
     }
 
     gtk_gesture_set_state(GTK_GESTURE(gesture), GTK_EVENT_SEQUENCE_CLAIMED);
-    gtk_gl_area_queue_render(self->gl_area);
+    ghostty_terminal_request_draw(self);
 }
 
 static void
@@ -1062,7 +1055,7 @@ on_motion(GtkEventControllerMotion *controller,
 
     GdkModifierType state = current_event_mods(GTK_EVENT_CONTROLLER(controller));
     ghostty_surface_mouse_pos(self->surface, x, y, translate_mods(state));
-    gtk_gl_area_queue_render(self->gl_area);
+    ghostty_terminal_request_draw(self);
 }
 
 /* ── Focus on hover ───────────────────────────────────────────── */
@@ -1136,7 +1129,7 @@ on_scroll(GtkEventControllerScroll *controller,
 
     ghostty_surface_mouse_scroll(self->surface, -dx, -dy * dy_factor,
                                  (ghostty_input_scroll_mods_t)translate_mods(state));
-    gtk_gl_area_queue_render(self->gl_area);
+    ghostty_terminal_request_draw(self);
     return TRUE;
 }
 
@@ -1152,7 +1145,7 @@ on_focus_enter(GtkEventControllerFocus *controller, gpointer user_data)
         ghostty_surface_set_focus(self->surface, true);
 
     gtk_im_context_focus_in(self->im_context);
-    gtk_gl_area_queue_render(self->gl_area);
+    ghostty_terminal_request_draw(self);
 }
 
 static void
@@ -1165,7 +1158,7 @@ on_focus_leave(GtkEventControllerFocus *controller, gpointer user_data)
         ghostty_surface_set_focus(self->surface, false);
 
     gtk_im_context_focus_out(self->im_context);
-    gtk_gl_area_queue_render(self->gl_area);
+    ghostty_terminal_request_draw(self);
 }
 
 /* ── GObject lifecycle ─────────────────────────────────────────── */
@@ -1186,16 +1179,6 @@ ghostty_terminal_dispose(GObject *object)
     ghostty_terminal_clipboard_abort(self);
 
     if (self->surface) {
-        /* Release context-local GPU objects while a context is still current.
-         * Normally "unrealize" already did this; it is idempotent (the
-         * swapchain is marked defunct), so this only covers teardown orders
-         * where we are disposed while still realized. */
-        if (self->gl_area && gtk_widget_get_realized(GTK_WIDGET(self->gl_area)) &&
-            gtk_gl_area_get_error(self->gl_area) == NULL) {
-            gtk_gl_area_make_current(self->gl_area);
-            if (gtk_gl_area_get_error(self->gl_area) == NULL)
-                ghostty_surface_display_unrealized(self->surface);
-        }
         ghostty_surface_free(self->surface);
         self->surface = NULL;
     }
@@ -1208,7 +1191,7 @@ ghostty_terminal_dispose(GObject *object)
         self->dummy_target = NULL;
     }
 
-    /* Remove the child vbox (contains gl_area + status bar) from the widget tree */
+    /* Remove the child vbox (presentation + status bar) from the widget tree. */
     if (self->vbox) {
         gtk_widget_unparent(self->vbox);
         self->vbox = NULL;
@@ -1305,6 +1288,9 @@ ghostty_terminal_init(GhosttyTerminal *self)
     self->surface = NULL;
     self->tick_source_id = 0;
     self->exit_emitted = FALSE;
+    self->render_width = 0;
+    self->render_height = 0;
+    self->render_scale = 0;
     self->title = NULL;
     self->cwd = NULL;
     self->start_cwd = NULL;
@@ -1334,24 +1320,16 @@ ghostty_terminal_init(GhosttyTerminal *self)
     gtk_widget_set_overflow(self->vbox, GTK_OVERFLOW_HIDDEN);
     gtk_widget_set_parent(self->vbox, GTK_WIDGET(self));
 
-    /* ── Create the GtkGLArea child ── */
+    /* ── Create the frame presentation child ── */
 
-    self->gl_area = GTK_GL_AREA(gtk_gl_area_new());
-    gtk_gl_area_set_auto_render(self->gl_area, FALSE);
-    /* Force desktop GL (ghostty's renderer needs it, not GLES). On GTK 4.12+
-     * set_use_es is deprecated in favour of set_allowed_apis; keep the old
-     * call for older GTK (e.g. Debian bookworm ships 4.8). */
-#if GTK_CHECK_VERSION(4, 12, 0)
-    gtk_gl_area_set_allowed_apis(self->gl_area, GDK_GL_API_GL);
-#else
-    gtk_gl_area_set_use_es(self->gl_area, FALSE);
-#endif
-    gtk_gl_area_set_required_version(self->gl_area, 4, 3);
-    gtk_widget_set_hexpand(GTK_WIDGET(self->gl_area), TRUE);
-    gtk_widget_set_vexpand(GTK_WIDGET(self->gl_area), TRUE);
-    gtk_widget_set_focusable(GTK_WIDGET(self->gl_area), TRUE);
-    gtk_widget_set_overflow(GTK_WIDGET(self->gl_area), GTK_OVERFLOW_HIDDEN);
-    gtk_box_append(GTK_BOX(self->vbox), GTK_WIDGET(self->gl_area));
+    self->gl_area = gtk_picture_new();
+    gtk_picture_set_keep_aspect_ratio(GTK_PICTURE(self->gl_area), FALSE);
+    gtk_picture_set_can_shrink(GTK_PICTURE(self->gl_area), TRUE);
+    gtk_widget_set_hexpand(self->gl_area, TRUE);
+    gtk_widget_set_vexpand(self->gl_area, TRUE);
+    gtk_widget_set_focusable(self->gl_area, TRUE);
+    gtk_widget_set_overflow(self->gl_area, GTK_OVERFLOW_HIDDEN);
+    gtk_box_append(GTK_BOX(self->vbox), self->gl_area);
 
     /* ── Create status bar ── */
 
@@ -1383,11 +1361,8 @@ ghostty_terminal_init(GhosttyTerminal *self)
 
     gtk_box_append(GTK_BOX(self->vbox), self->status_bar);
 
-    g_signal_connect(self->gl_area, "realize", G_CALLBACK(on_gl_realize), self);
-    g_signal_connect(self->gl_area, "unrealize",
-                     G_CALLBACK(on_gl_unrealize), self);
-    g_signal_connect(self->gl_area, "render", G_CALLBACK(on_gl_render), self);
-    g_signal_connect(self->gl_area, "resize", G_CALLBACK(on_gl_resize), self);
+    g_signal_connect(self->gl_area, "realize",
+                     G_CALLBACK(on_render_realize), self);
 
     /* ── IME context ── */
 
@@ -1583,7 +1558,7 @@ ghostty_terminal_send_key_event(GhosttyTerminal *self,
 {
     g_return_if_fail(GHOSTTY_IS_TERMINAL(self));
     ghostty_terminal_send_key_internal(self, keyval, keycode, state, NULL);
-    gtk_gl_area_queue_render(self->gl_area);
+    ghostty_terminal_request_draw(self);
 }
 
 const char *
@@ -1751,10 +1726,10 @@ ghostty_terminal_focus(GhosttyTerminal *self)
 {
     g_return_if_fail(GHOSTTY_IS_TERMINAL(self));
     if (self->gl_area) {
-        gtk_widget_grab_focus(GTK_WIDGET(self->gl_area));
+        gtk_widget_grab_focus(self->gl_area);
         if (self->surface)
             ghostty_surface_set_focus(self->surface, true);
-        gtk_gl_area_queue_render(self->gl_area);
+        ghostty_terminal_request_draw(self);
     }
 }
 
@@ -1807,7 +1782,7 @@ ghostty_terminal_queue_render(GhosttyTerminal *self)
 {
     g_return_if_fail(GHOSTTY_IS_TERMINAL(self));
     if (self->gl_area)
-        gtk_gl_area_queue_render(self->gl_area);
+        ghostty_terminal_present_latest_frame(self);
 }
 
 /* ── Activity tracking ────────────────────────────────────────── */

@@ -1,8 +1,8 @@
 /*
  * ghostty_terminal.h - GObject widget wrapping ghostty's embedded C API
  *
- * A GtkWidget subclass (composite widget containing a GtkGLArea) that
- * creates and manages a ghostty terminal surface with OpenGL rendering.
+ * A GtkWidget subclass that presents frames produced by an embedded Ghostty
+ * terminal surface.
  */
 #pragma once
 
@@ -101,7 +101,7 @@ void ghostty_terminal_set_dummy_target(GhosttyTerminal *self, GtkWidget *dummy);
 GtkWidget *ghostty_terminal_get_dummy_target(GhosttyTerminal *self);
 
 /*
- * Give keyboard focus to the terminal's GtkGLArea.
+ * Give keyboard focus to the terminal presentation widget.
  */
 void ghostty_terminal_focus(GhosttyTerminal *self);
 void ghostty_terminal_send_key_event(GhosttyTerminal *self,
@@ -115,8 +115,8 @@ gboolean ghostty_terminal_hangup_session(GhosttyTerminal *self);
 /*
  * ghostty_terminal_queue_render:
  *
- * Queue a render on this terminal's GtkGLArea.  Called from the global
- * action callback when ghostty reports new content (GHOSTTY_ACTION_RENDER).
+ * Present Ghostty's newest completed frame. Called from the global action
+ * callback when ghostty reports new content (GHOSTTY_ACTION_RENDER).
  */
 void ghostty_terminal_queue_render(GhosttyTerminal *self);
 

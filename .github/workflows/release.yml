@@ -12,11 +12,9 @@ on:
 
 env:
   GHOSTTY_REPO: patcito/ghostty
-  # 318afb8 is the last Linux embedding revision verified not to crash while
-  # creating a Ghostty surface (the revision shipped in PrettyMux 0.2.48).
-  GHOSTTY_REF: 318afb82281e79b03acb6a6ca88dc08e8cb87d2f
-  GHOSTTY_RELEASE: linux-embedded-v0.1.0
-  ZIG_VERSION: '0.15.2'
+  # Ghostty 1.4.0 plus PrettyMux's GTK embedding bridge, pinned exactly.
+  GHOSTTY_REF: c1b95626a1bcbbeeaa149fac851e28d35b81342d
+  ZIG_VERSION: '0.17.0'
 
 jobs:
   # ---------------------------------------------------------------------------
@@ -42,9 +40,6 @@ jobs:
         uses: mlugg/setup-zig@v2
         with:
           version: ${{ env.ZIG_VERSION }}
-
-      - name: Apply PrettyMux Ghostty compatibility patch
-        run: git -C ghostty apply "$GITHUB_WORKSPACE/packaging/ghostty-linux-stable.patch"
 
       - name: Resolve ghostty revision
         id: ghostty_rev
@@ -267,9 +262,6 @@ jobs:
         with:
           version: ${{ env.ZIG_VERSION }}
 
-      - name: Apply PrettyMux Ghostty compatibility patch
-        run: git -C ghostty apply "$GITHUB_WORKSPACE/packaging/ghostty-linux-stable.patch"
-
       - name: Resolve ghostty revision
         id: ghostty_rev
         run: |
@@ -372,9 +364,6 @@ jobs:
           repository: ${{ env.GHOSTTY_REPO }}
           ref: ${{ env.GHOSTTY_REF }}
           path: ghostty
-
-      - name: Apply PrettyMux Ghostty compatibility patch
-        run: git -C ghostty apply "$GITHUB_WORKSPACE/packaging/ghostty-linux-stable.patch"
 
       - name: Build snap
         uses: snapcore/action-build@v1
