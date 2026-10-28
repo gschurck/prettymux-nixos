@@ -142,12 +142,13 @@ jobs:
       - name: Smoke test package
         run: |
           apt-get update
-          apt-get install -y xvfb xauth dbus-x11 libgl1-mesa-dri
+          apt-get install -y xvfb xauth dbus-x11 libgl1-mesa-dri gdb
           rm -rf smoke-root
           mkdir -p smoke-root
           tar xzf prettymux-ubuntu-24.04-amd64.tar.gz -C smoke-root
           bash packaging/ci-gui-smoke-test.sh ubuntu \
             env LD_LIBRARY_PATH="$PWD/smoke-root/usr/lib/prettymux" \
+            gdb --batch -ex run -ex "thread apply all bt" --args \
             "$PWD/smoke-root/usr/bin/prettymux"
 
       - name: Upload artifact
