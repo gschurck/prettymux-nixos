@@ -11,7 +11,7 @@ depends=('gtk4' 'libadwaita' 'json-glib')
 makedepends=('meson' 'ninja' 'gcc' 'zig' 'git')
 source=(
   "prettymux::git+https://github.com/patcito/prettymux.git"
-  "ghostty::git+https://github.com/patcito/ghostty.git#commit=2556a72417712c67f192a2984ff9e8dce4903c26"
+  "ghostty::git+https://github.com/patcito/ghostty.git#commit=f868bc9e2ded584967db4360c3a38f3de48bc165"
 )
 sha256sums=('SKIP' 'SKIP')
 
