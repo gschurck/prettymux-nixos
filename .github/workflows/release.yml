@@ -63,7 +63,7 @@ jobs:
           zig build \
             -Dapp-runtime=none \
             -Demit-themes=true \
-            -Doptimize=ReleaseFast \
+            -Doptimize=Debug \
             -Dtarget=x86_64-linux-gnu
           echo "Layout:"
           find . -type f | head -20
@@ -148,7 +148,8 @@ jobs:
           tar xzf prettymux-ubuntu-24.04-amd64.tar.gz -C smoke-root
           bash packaging/ci-gui-smoke-test.sh ubuntu \
             env LD_LIBRARY_PATH="$PWD/smoke-root/usr/lib/prettymux" \
-            gdb --batch -ex run -ex "thread apply all bt" --args \
+            gdb --batch -ex run -ex "info registers" -ex "x/16i \$pc-32" \
+            -ex "thread apply all bt full" --args \
             "$PWD/smoke-root/usr/bin/prettymux"
 
       - name: Upload artifact
