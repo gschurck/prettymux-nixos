@@ -70,8 +70,8 @@ jobs:
         run: |
           cd ghostty
           zig_exe="$(cygpath -u "$ZIG_EXE")"
-          mkdir -p windows-libs
-          cp /ucrt64/lib/libEGL.dll.a windows-libs/libegl.a
+          mkdir -p windows-libs/lib
+          cp /ucrt64/lib/libEGL.dll.a windows-libs/lib/libegl.a
           for attempt in 1 2 3; do
             if "$zig_exe" build --search-prefix "$PWD/windows-libs" \
               -Dapp-runtime=none \
