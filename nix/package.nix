@@ -3,7 +3,7 @@
   lib,
   stdenv,
   callPackage,
-  zig_0_15,
+  zig_0_17,
   git,
   meson,
   ninja,
@@ -31,21 +31,19 @@
 let
   # Same pin as GHOSTTY_REF in .github/workflows/release.yml.
   ghosttySrc = builtins.fetchTarball {
-    url = "https://github.com/patcito/ghostty/archive/318afb82281e79b03acb6a6ca88dc08e8cb87d2f.tar.gz";
-    sha256 = "sha256-JgTnwTQANkMpHTbVQrdSNDjSnU0QCBV7ZWq4zqESytA=";
+    url = "https://github.com/patcito/ghostty/archive/bd604e89a70455c99ecc7ed38a6ffe16c20a8871.tar.gz";
+    sha256 = "sha256-WKHv9Bz9Nq5brr1R7soUkc20dLelPPTQdTmflxENp3A=";
   };
 
   libghostty = stdenv.mkDerivation (finalAttrs: {
     pname = "libghostty";
-    version = "0-unstable-318afb8";
+    version = "0-unstable-bd604e8";
     src = ghosttySrc;
-    # git apply like CI: GNU patch rejects the patch's asymmetric build.zig hunk.
-    postPatch = "git apply ${../packaging/ghostty-linux-stable.patch}";
 
     # Zig can't fetch in the sandbox; the fork ships its deps as a zon2nix file.
     deps = callPackage "${ghosttySrc}/build.zig.zon.nix" { name = "libghostty-cache"; };
 
-    nativeBuildInputs = [ zig_0_15 git ncurses pkg-config ];
+    nativeBuildInputs = [ zig_0_17 git ncurses pkg-config ];
     buildInputs = [
       bzip2 expat fontconfig freetype glslang harfbuzz libGL
       libpng libxml2 oniguruma simdutf spirv-cross zlib
@@ -67,7 +65,7 @@ let
 in
 stdenv.mkDerivation {
   pname = "prettymux";
-  version = "0.2.60";
+  version = "0.2.62";
   src = lib.cleanSource ../.;
   sourceRoot = "source/src/gtk";
 
