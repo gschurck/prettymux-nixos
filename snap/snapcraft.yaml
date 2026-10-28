@@ -34,12 +34,7 @@ parts:
       curl -fsSL "https://ziglang.org/download/${ZIG_VERSION}/zig-x86_64-linux-${ZIG_VERSION}.tar.xz" \
         | tar -xJ -C "$ZIG_DIR" --strip-components=1
       # Snapcraft's managed LXD resolver file is rejected by Zig 0.17.
-      # Resolve Ghostty's dependency host through libc first, then replace
-      # the file with a minimal, newline-terminated configuration Zig accepts.
-      deps_ip="$(getent ahostsv4 deps.files.ghostty.org | awk 'NR == 1 { print $1 }')"
-      if [ -n "$deps_ip" ]; then
-        printf '%s %s\n' "$deps_ip" deps.files.ghostty.org >> /etc/hosts
-      fi
+      # Replace it with a minimal, newline-terminated configuration Zig accepts.
       printf 'nameserver 1.1.1.1\nnameserver 8.8.8.8\n' > /etc/resolv.conf
       "$ZIG_DIR/zig" build \
         -Dapp-runtime=none \
