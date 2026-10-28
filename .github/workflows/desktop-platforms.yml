@@ -70,13 +70,10 @@ jobs:
         run: |
           cd ghostty
           zig_exe="$(cygpath -u "$ZIG_EXE")"
-          ucrt_root_win="$(cygpath -m /ucrt64)"
-          export PKG_CONFIG=/ucrt64/bin/pkg-config.exe
           mkdir -p windows-libs
           cp /ucrt64/lib/libEGL.dll.a windows-libs/libegl.a
           for attempt in 1 2 3; do
             if "$zig_exe" build --search-prefix "$PWD/windows-libs" \
-              --search-prefix "$ucrt_root_win" \
               -Dapp-runtime=none \
               -Doptimize=ReleaseFast \
               -Dtarget=x86_64-windows-gnu; then
