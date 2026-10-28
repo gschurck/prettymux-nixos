@@ -69,6 +69,8 @@ parts:
       - libgtk-4-1
       - libadwaita-1-0
       - libjson-glib-1.0-0
+      - libegl1
+      - libgl1
     override-build: |
       cd $CRAFT_PART_SRC/src/gtk
       meson setup builddir --buildtype=release -Dghostty_dir=$CRAFT_STAGE/ghostty
