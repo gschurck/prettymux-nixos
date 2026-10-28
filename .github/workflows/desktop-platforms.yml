@@ -60,19 +60,22 @@ jobs:
             mingw-w64-ucrt-x86_64-ninja
             mingw-w64-ucrt-x86_64-tools-git
 
+      - name: Resolve Zig executable
+        shell: pwsh
+        run: |
+          "ZIG_EXE=$((Get-Command zig).Source)" | Out-File -FilePath $env:GITHUB_ENV -Append
+
       - name: Build ghostty
-        shell: bash
+        shell: msys2 {0}
         run: |
           cd ghostty
-          pkg_config_exe="$(command -v pkg-config.exe)"
-          ucrt_bin="$(dirname "$pkg_config_exe")"
-          ucrt_root="$(cd "$ucrt_bin/.." && pwd)"
-          ucrt_root_win="$(cygpath -m "$ucrt_root")"
-          export PKG_CONFIG="$pkg_config_exe"
+          zig_exe="$(cygpath -u "$ZIG_EXE")"
+          ucrt_root_win="$(cygpath -m /ucrt64)"
+          export PKG_CONFIG=/ucrt64/bin/pkg-config.exe
           mkdir -p windows-libs
-          cp "$ucrt_root/lib/libEGL.dll.a" windows-libs/libegl.a
+          cp /ucrt64/lib/libEGL.dll.a windows-libs/libegl.a
           for attempt in 1 2 3; do
-            if zig build --search-prefix "$PWD/windows-libs" \
+            if "$zig_exe" build --search-prefix "$PWD/windows-libs" \
               --search-prefix "$ucrt_root_win" \
               -Dapp-runtime=none \
               -Doptimize=ReleaseFast \
