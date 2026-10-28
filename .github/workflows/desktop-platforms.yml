@@ -64,13 +64,16 @@ jobs:
         shell: bash
         run: |
           cd ghostty
-          export PATH="/c/msys64/ucrt64/bin:$PATH"
-          export PKG_CONFIG="/c/msys64/ucrt64/bin/pkg-config.exe"
+          pkg_config_exe="$(command -v pkg-config.exe)"
+          ucrt_bin="$(dirname "$pkg_config_exe")"
+          ucrt_root="$(cd "$ucrt_bin/.." && pwd)"
+          ucrt_root_win="$(cygpath -m "$ucrt_root")"
+          export PKG_CONFIG="$pkg_config_exe"
           mkdir -p windows-libs
-          cp /c/msys64/ucrt64/lib/libEGL.dll.a windows-libs/libegl.a
+          cp "$ucrt_root/lib/libEGL.dll.a" windows-libs/libegl.a
           for attempt in 1 2 3; do
             if zig build --search-prefix "$PWD/windows-libs" \
-              --search-prefix C:/msys64/ucrt64 \
+              --search-prefix "$ucrt_root_win" \
               -Dapp-runtime=none \
               -Doptimize=ReleaseFast \
               -Dtarget=x86_64-windows-gnu; then
