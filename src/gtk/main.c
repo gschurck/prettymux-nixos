@@ -1359,6 +1359,12 @@ static void on_activate(GtkApplication *app, gpointer user_data) {
                                : "(null)",
                            g_application_get_is_registered(G_APPLICATION(app)),
                            g_application_get_dbus_connection(G_APPLICATION(app)));
+    /* Ghostty 1.4 keeps a view of the process environment from ghostty_init().
+     * Start the socket first because it publishes PRETTYMUX_* with g_setenv(),
+     * which may replace libc's environ block and invalidate an earlier view. */
+    socket_server_set_callback(socket_commands_on_socket_command, NULL);
+    socket_server_start();
+
     /* Resource discovery must happen before settings write the Ghostty theme
      * override and before ghostty_init snapshots the process environment. */
     setup_shell_integration_env();
@@ -1483,10 +1489,6 @@ static void on_activate(GtkApplication *app, gpointer user_data) {
     // Save on close
     g_signal_connect(window, "close-request",
                      G_CALLBACK(app_actions_on_close_request), NULL);
-
-    // ── Per-instance socket server ──
-    socket_server_set_callback(socket_commands_on_socket_command, NULL);
-    socket_server_start();
 
     // Create initial workspace + restore or create defaults
     workspace_add(ui.terminal_stack, ui.workspace_list, g_ghostty_app);
