@@ -148,7 +148,6 @@ elif is_windows
   platform_link_args += [
     ghostty_windows_lib,
     '-lc++',
-    '-lc++abi',
     '-lEGL',
     '-lntdll',
     '-lws2_32',
