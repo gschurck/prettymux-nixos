@@ -6,7 +6,7 @@
 - Meson + Ninja
 - C17 compiler
 - Ghostty 1.4.0 plus the GTK embedding bridge from `patcito/ghostty`, pinned
-  by the packaging workflows to commit `2b675d3059d69606d67220d7433a6b99c0afd429`
+  by the packaging workflows to commit `2556a72418fb54dd95b6c207a92afb2722049fce`
 - Zig `0.17.0` to build `libghostty` (Ghostty 1.4.0's minimum version)
 
 ### Install deps on Ubuntu or Debian
