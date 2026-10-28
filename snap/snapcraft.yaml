@@ -33,14 +33,14 @@ parts:
       mkdir -p "$ZIG_DIR"
       curl -fsSL "https://ziglang.org/download/${ZIG_VERSION}/zig-x86_64-linux-${ZIG_VERSION}.tar.xz" \
         | tar -xJ -C "$ZIG_DIR" --strip-components=1
-      # Snapcraft's managed LXD image adds resolver options that Zig 0.17
-      # cannot parse. Keep the working nameservers while dropping those
-      # unsupported directives before Zig fetches Ghostty's dependencies.
-      awk '$1 == "nameserver" && NF >= 2 { print "nameserver " $2 }' \
-        /etc/resolv.conf > "$CRAFT_PART_BUILD/resolv.conf.zig"
-      if [ -s "$CRAFT_PART_BUILD/resolv.conf.zig" ]; then
-        cat "$CRAFT_PART_BUILD/resolv.conf.zig" > /etc/resolv.conf
+      # Snapcraft's managed LXD resolver file is rejected by Zig 0.17.
+      # Resolve Ghostty's dependency host through libc first, then replace
+      # the file with a minimal, newline-terminated configuration Zig accepts.
+      deps_ip="$(getent ahostsv4 deps.files.ghostty.org | awk 'NR == 1 { print $1 }')"
+      if [ -n "$deps_ip" ]; then
+        printf '%s %s\n' "$deps_ip" deps.files.ghostty.org >> /etc/hosts
       fi
+      printf 'nameserver 1.1.1.1\nnameserver 8.8.8.8\n' > /etc/resolv.conf
       "$ZIG_DIR/zig" build \
         -Dapp-runtime=none \
         -Demit-themes=true \
