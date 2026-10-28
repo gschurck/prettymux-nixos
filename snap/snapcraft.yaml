@@ -1,6 +1,6 @@
 name: prettymux
 base: core24
-version: '0.2.61'
+version: '0.2.62'
 license: GPL-3.0-only
 summary: GPU-accelerated terminal multiplexer
 description: |
@@ -33,6 +33,14 @@ parts:
       mkdir -p "$ZIG_DIR"
       curl -fsSL "https://ziglang.org/download/${ZIG_VERSION}/zig-x86_64-linux-${ZIG_VERSION}.tar.xz" \
         | tar -xJ -C "$ZIG_DIR" --strip-components=1
+      # Snapcraft's managed LXD image adds resolver options that Zig 0.17
+      # cannot parse. Keep the working nameservers while dropping those
+      # unsupported directives before Zig fetches Ghostty's dependencies.
+      awk '$1 == "nameserver" && NF >= 2 { print "nameserver " $2 }' \
+        /etc/resolv.conf > "$CRAFT_PART_BUILD/resolv.conf.zig"
+      if [ -s "$CRAFT_PART_BUILD/resolv.conf.zig" ]; then
+        cat "$CRAFT_PART_BUILD/resolv.conf.zig" > /etc/resolv.conf
+      fi
       "$ZIG_DIR/zig" build \
         -Dapp-runtime=none \
         -Demit-themes=true \
