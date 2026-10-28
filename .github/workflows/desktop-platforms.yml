@@ -60,13 +60,16 @@ jobs:
             mingw-w64-ucrt-x86_64-tools-git
 
       - name: Build ghostty
-        shell: msys2 {0}
+        shell: bash
         run: |
           cd ghostty
+          export PATH="/c/msys64/ucrt64/bin:$PATH"
+          export PKG_CONFIG="/c/msys64/ucrt64/bin/pkg-config.exe"
           for attempt in 1 2 3; do
             if zig build \
               -Dapp-runtime=none \
-              -Doptimize=ReleaseFast; then
+              -Doptimize=ReleaseFast \
+              -Dtarget=x86_64-windows-msvc; then
               break
             fi
 
