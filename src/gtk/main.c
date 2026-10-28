@@ -680,11 +680,9 @@ static gboolean terminal_is_live(gpointer ud) {
 /* ── Clipboard reads (paste requests and OSC 52 reads) ──────────────
  *
  * Ghostty calls read_clipboard_cb with the surface's userdata (the
- * GhosttyTerminal) and an opaque request `state`. Returning TRUE promises we
- * will eventually hand the text back via
- * ghostty_surface_complete_clipboard_request(); returning FALSE lets ghostty
- * free the request itself, but also reports the binding as *not performed*, so
- * the keystroke falls through to the child PTY.
+ * GhosttyTerminal), an opaque request `state`, and the MIME representations
+ * requested by the terminal protocol. Returning STARTED promises we will
+ * eventually settle the request; UNAVAILABLE and UNSUPPORTED are immediate.
  *
  * The GDK read is async, so the terminal may be closed before it lands. We
  * therefore only hold a *weak* ref — a strong one would keep the terminal, and
@@ -697,12 +695,37 @@ static gboolean terminal_is_live(gpointer ud) {
  * chars) or unauthorized (an app reading the clipboard via OSC 52), it calls
  * confirm_read_clipboard_cb *from inside* complete_clipboard_request() and
  * preserves the request for us to confirm. We prompt, then complete with the
- * text on accept or an empty string on decline. */
+ * text on accept or explicitly deny it on decline. */
 
 typedef struct {
     GWeakRef  term;
     void     *state; /* ghostty's clipboard request; must be completed once */
+    gboolean  include_text;
+    gboolean  include_available;
 } ClipboardReadCtx;
+
+static void complete_clipboard_text(ghostty_surface_t surface,
+                                    const char *text,
+                                    void *state,
+                                    gboolean confirmed,
+                                    gboolean include_text,
+                                    gboolean include_available) {
+    ghostty_clipboard_content_s content = {
+        .mime = "text/plain",
+        .data = text ? text : "",
+        .len = text ? strlen(text) : 0,
+    };
+    const char *available[] = {"text/plain"};
+    ghostty_clipboard_complete_s complete = {
+        .contents = include_text && text ? &content : NULL,
+        .contents_len = include_text && text ? 1 : 0,
+        .available = include_available && text ? available : NULL,
+        .available_len = include_available && text ? 1 : 0,
+        .confirmed = confirmed,
+        .remember = false,
+    };
+    ghostty_surface_complete_clipboard_request(surface, &complete, state);
+}
 
 static void clipboard_read_done_cb(GObject *source, GAsyncResult *res, gpointer ud) {
     ClipboardReadCtx *ctx = ud;
@@ -718,8 +741,9 @@ static void clipboard_read_done_cb(GObject *source, GAsyncResult *res, gpointer 
         if (surface) {
             /* May re-enter confirm_read_clipboard_cb synchronously, which puts
              * a dialog up and keeps the request alive for its response. */
-            ghostty_surface_complete_clipboard_request(surface, text ? text : "",
-                                                       ctx->state, false);
+            complete_clipboard_text(surface, text, ctx->state, false,
+                                    ctx->include_text,
+                                    ctx->include_available);
             if (!ghostty_terminal_clipboard_has_dialog(term))
                 ghostty_terminal_clipboard_end(term);   /* request consumed */
         } else {
@@ -736,22 +760,39 @@ static void clipboard_read_done_cb(GObject *source, GAsyncResult *res, gpointer 
     g_free(ctx);
 }
 
-static bool read_clipboard_cb(void *ud, ghostty_clipboard_e c, void *state) {
+static ghostty_clipboard_read_result_e
+read_clipboard_cb(void *ud,
+                  ghostty_clipboard_e c,
+                  void *state,
+                  const char *const *mimes,
+                  size_t mime_count,
+                  bool list_available) {
+    gboolean wants_text = FALSE;
+
     if (!terminal_is_live(ud))
-        return false;
+        return GHOSTTY_CLIPBOARD_READ_UNAVAILABLE;
+
+    for (size_t i = 0; i < mime_count; i++) {
+        if (mimes[i] && g_strcmp0(mimes[i], "text/plain") == 0) {
+            wants_text = TRUE;
+            break;
+        }
+    }
+    if (!wants_text && !list_available)
+        return GHOSTTY_CLIPBOARD_READ_UNSUPPORTED;
 
     GhosttyTerminal *term = GHOSTTY_TERMINAL(ud);
     ghostty_surface_t surface = ghostty_terminal_get_surface(term);
 
     GdkClipboard *clip = clipboard_for(gtk_widget_get_display(GTK_WIDGET(term)), c);
     if (!clip)
-        return false;
+        return GHOSTTY_CLIPBOARD_READ_UNAVAILABLE;
 
     /* Ghostty's contract: no text available => return false, so an image-only
      * clipboard doesn't silently swallow the paste binding. */
     GdkContentFormats *formats = gdk_clipboard_get_formats(clip);
     if (!formats || !gdk_content_formats_contain_gtype(formats, G_TYPE_STRING))
-        return false;
+        return GHOSTTY_CLIPBOARD_READ_UNAVAILABLE;
 
     GCancellable *cancellable = NULL;
     if (!ghostty_terminal_clipboard_begin(term, state, &cancellable)) {
@@ -760,15 +801,17 @@ static bool read_clipboard_cb(void *ud, ghostty_clipboard_e c, void *state) {
          * and the keystroke gets encoded into the child PTY as a literal ^V.
          * Settle this request as empty instead — it consumes the key (and
          * answers a concurrent OSC 52 query with no data). */
-        ghostty_surface_complete_clipboard_request(surface, "", state, true);
-        return true;
+        ghostty_surface_deny_clipboard_request(surface, state);
+        return GHOSTTY_CLIPBOARD_READ_STARTED;
     }
 
     ClipboardReadCtx *ctx = g_new0(ClipboardReadCtx, 1);
     g_weak_ref_init(&ctx->term, term);
     ctx->state = state;
+    ctx->include_text = wants_text;
+    ctx->include_available = list_available;
     gdk_clipboard_read_text_async(clip, cancellable, clipboard_read_done_cb, ctx);
-    return true;
+    return GHOSTTY_CLIPBOARD_READ_STARTED;
 }
 
 typedef struct {
@@ -803,11 +846,13 @@ static void clipboard_confirm_response_cb(AdwMessageDialog *dialog,
     if (term && ghostty_terminal_clipboard_is_pending(term, ctx->state)) {
         ghostty_surface_t surface = ghostty_terminal_get_surface(term);
 
-        /* Complete either way so ghostty releases the request; on decline we
-         * hand back an empty string so nothing is pasted / disclosed. */
-        if (surface)
-            ghostty_surface_complete_clipboard_request(
-                surface, allowed ? ctx->text : "", ctx->state, true);
+        if (surface) {
+            if (allowed)
+                complete_clipboard_text(surface, ctx->text, ctx->state,
+                                        true, true, false);
+            else
+                ghostty_surface_deny_clipboard_request(surface, ctx->state);
+        }
         ghostty_terminal_clipboard_end(term);
     }
 
@@ -815,7 +860,13 @@ static void clipboard_confirm_response_cb(AdwMessageDialog *dialog,
         g_object_unref(term);
 }
 
-static void confirm_read_clipboard_cb(void *ud, const char *t, void *state, ghostty_clipboard_request_e r) {
+static void confirm_read_clipboard_cb(void *ud,
+                                      const ghostty_clipboard_confirm_s *confirm,
+                                      void *state,
+                                      ghostty_clipboard_request_e r) {
+    const char *text = "";
+    size_t text_len = 0;
+
     if (!ud || !GHOSTTY_IS_TERMINAL(ud))
         return;
 
@@ -826,7 +877,20 @@ static void confirm_read_clipboard_cb(void *ud, const char *t, void *state, ghos
     if (!ghostty_terminal_clipboard_is_pending(term, state))
         return;
 
-    gboolean osc52 = (r == GHOSTTY_CLIPBOARD_REQUEST_OSC_52_READ);
+    if (confirm) {
+        for (size_t i = 0; i < confirm->contents_len; i++) {
+            const ghostty_clipboard_content_s *content = &confirm->contents[i];
+            if (content->data &&
+                (!content->mime || g_str_has_prefix(content->mime, "text/"))) {
+                text = content->data;
+                text_len = content->len;
+                break;
+            }
+        }
+    }
+
+    gboolean osc52 = (r == GHOSTTY_CLIPBOARD_REQUEST_OSC_52_READ ||
+                       r == GHOSTTY_CLIPBOARD_REQUEST_KITTY_READ);
     const char *heading = osc52
         ? "Allow the program to read your clipboard?"
         : "Paste this text?";
@@ -839,7 +903,7 @@ static void confirm_read_clipboard_cb(void *ud, const char *t, void *state, ghos
     ClipboardConfirmCtx *ctx = g_new0(ClipboardConfirmCtx, 1);
     g_weak_ref_init(&ctx->term, term);
     ctx->state = state;
-    ctx->text = g_strdup(t ? t : "");
+    ctx->text = g_strndup(text, text_len);
 
     AdwMessageDialog *dialog = ADW_MESSAGE_DIALOG(
         adw_message_dialog_new(g_main_window, heading, body));

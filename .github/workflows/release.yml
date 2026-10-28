@@ -13,7 +13,7 @@ on:
 env:
   GHOSTTY_REPO: patcito/ghostty
   # Ghostty 1.4.0 plus PrettyMux's GTK embedding bridge, pinned exactly.
-  GHOSTTY_REF: c1b95626a1bcbbeeaa149fac851e28d35b81342d
+  GHOSTTY_REF: 1c654bee04ccebd9a0eba01750d06455c520a4fa
   ZIG_VERSION: '0.17.0'
 
 jobs:

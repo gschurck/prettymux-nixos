@@ -21,7 +21,7 @@ permissions:
 
 env:
   GHOSTTY_REPO: patcito/ghostty
-  GHOSTTY_REF: c1b95626a1bcbbeeaa149fac851e28d35b81342d
+  GHOSTTY_REF: 1c654bee04ccebd9a0eba01750d06455c520a4fa
   ZIG_VERSION: '0.17.0'
 
 jobs:
@@ -60,14 +60,13 @@ jobs:
             mingw-w64-ucrt-x86_64-tools-git
 
       - name: Build ghostty
-        shell: bash
+        shell: msys2 {0}
         run: |
           cd ghostty
           for attempt in 1 2 3; do
             if zig build \
               -Dapp-runtime=none \
-              -Doptimize=ReleaseFast \
-              -Dtarget=x86_64-windows-gnu; then
+              -Doptimize=ReleaseFast; then
               break
             fi
 

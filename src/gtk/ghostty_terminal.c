@@ -1530,11 +1530,9 @@ ghostty_terminal_clipboard_abort(GhosttyTerminal *self)
     if (self->clip_cancellable)
         g_cancellable_cancel(self->clip_cancellable);
 
-    /* Complete with no data and confirmed=true: ghostty frees the request
-     * without routing it back through confirm_read_clipboard_cb, and a closed
-     * terminal discloses nothing. */
+    /* Explicitly deny the request so a closing terminal discloses nothing. */
     if (self->clip_state && self->surface)
-        ghostty_surface_complete_clipboard_request(self->surface, "", self->clip_state, true);
+        ghostty_surface_deny_clipboard_request(self->surface, self->clip_state);
     self->clip_state = NULL;
 
     /* gtk_window_destroy() does not emit AdwMessageDialog::response, so the
