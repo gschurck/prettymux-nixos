@@ -66,7 +66,7 @@ jobs:
           export PATH="/c/msys64/ucrt64/bin:$PATH"
           export PKG_CONFIG="/c/msys64/ucrt64/bin/pkg-config.exe"
           for attempt in 1 2 3; do
-            if zig build \
+            if zig build --search-prefix C:/msys64/ucrt64 \
               -Dapp-runtime=none \
               -Doptimize=ReleaseFast \
               -Dtarget=x86_64-windows-gnu; then
