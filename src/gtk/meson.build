@@ -64,6 +64,7 @@ sources = files(
 
 platform_sources = []
 platform_deps = []
+platform_c_args = []
 platform_link_args = []
 extra_include_dirs = [ghostty_inc]
 build_rpath = ''
@@ -124,6 +125,7 @@ elif is_macos
     '-lc++',
   ]
 elif is_windows
+  platform_c_args += ['-DGHOSTTY_STATIC']
   ghostty_windows_lib = ''
   foreach lib_candidate : [
     ghostty_lib_dir / 'libghostty.dll.a',
@@ -161,7 +163,7 @@ executable('prettymux', sources + platform_sources,
   c_args: [
     '-DPRETTYMUX_SOURCE_DIR="' + meson.current_source_dir() + '"',
     '-DPRETTYMUX_VERSION="' + meson.project_version() + '"',
-  ],
+  ] + platform_c_args,
   link_args: platform_link_args,
   build_rpath: build_rpath,
   install_rpath: install_rpath,
